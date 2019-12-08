@@ -1,5 +1,5 @@
 ---
-title: "HW_2016122019"
+title: "데이터 공학 개인과제"
 author: "정민지"
 output: 
   html_document:
@@ -8,7 +8,7 @@ output:
 ---
 
 설치과정은 교수님 홈페이지를 참고하였습니다.
-https://statkclee.github.io/data-science/ds-postgreSQL.html#1_postgresql_1_2
+https://statkclee.github.io/data-science/ds-postgreSQL.html
 
 # 1. postgreSQL 설치
 
@@ -19,11 +19,11 @@ https://statkclee.github.io/data-science/ds-postgreSQL.html#1_postgresql_1_2
 
 # 2. 예제 데이터베이스 설치
 
-## 2.1 dvd 데이터베이스 생성
+### 2.1 dvd 데이터베이스 생성
 - 설치 명령어 : `CREATE DATABASE dvd;`
 ![dvd 데이터베이스 생성](fig/fig1.PNG){#id .class width="80%"}
 
-## 2.2 dvd 데이터베이스에 데이터 추가
+### 2.2 dvd 데이터베이스에 데이터 추가
 
 - 디렉토리 : `C:\Program Files\PostgreSQL\12\bin`
 - 설치 명령어 : `pg_restore -U postgres -d dvd C:\Users\MINJI\MJ\2019-2\Data_Engineering\HW\dvdrental.tar`
@@ -44,6 +44,8 @@ https://statkclee.github.io/data-science/ds-postgreSQL.html#1_postgresql_1_2
 library(RPostgreSQL)
 library(DBI)
 library(tidyverse)
+library(datamodelr)
+library(plotly) 
 ```
 
 
@@ -64,8 +66,8 @@ con <- dbConnect(pgdrv, dbname="dvd",
 qry <- "SELECT *
         FROM pg_catalog.pg_tables"
 
-dbGetQuery(con, qry) %>% 
-  filter(schemaname == 'public') 
+posible_table <- dbGetQuery(con, qry) %>% filter(schemaname == 'public')
+posible_table$tablename
 ```
 
 - 컬럼명 확인
@@ -98,21 +100,85 @@ address <- dbGetQuery(con, "SELECT * FROM address")
 city <- dbGetQuery(con, "SELECT * FROM city")
 country <- dbGetQuery(con, "SELECT * FROM country")
 store <- dbGetQuery(con, "SELECT * FROM store")
+film_actor <- dbGetQuery(con, "SELECT * FROM film_actor")
 ```
 
 
+
+https://www.freecodecamp.org/news/project-1-analyzing-dvd-rentals-with-sql-fd12dd674a64/
 
 
 # 4. dvd 데이터 분석 
 
 모든 테이블을 원자료 그대로 불러와서 dplyr 패키지를 통해서 전처리하였다.
 
-## 4.1 Q1
-What are the top and least rented (in-demand) genres and what are their total sales?
-(가장 많이/적게 대여된 장르는 무엇이며 그들의 총 매출액은 얼마인지 구하는 문제)
+## 4.1 총 질문 목록 
+
+[ 기본 질문 ]
+
+- Q1. 가장 많이/적게 대여된 장르는 무엇이며 그들의 총 매출액은 얼마인가
+- Q2. 각 장르의 distinct한 고객수
+- Q3. 각 장르의 평균대여료
+- Q4. 반납 시기(일찍/제때/연체)에 따른 대여량
+- Q5. Rent A Film이 입점한 국가와 국가별로 몇 명의 고객들이 있는지 / 각 국가에 대한 총매출액
+- Q6. 총매출액이 가장 높은 5명의 고객을 파악하고 그들에게 보상할 때 필요한 세부 정보 파악하기
+
+[ 추가 질문 ]
+
+- Q7. 이탈/잔존 고객의 수 & 이탈/잔존 고객의 구매횟수 및 대여료(최소, 평균, 최대, 총)
+- Q8. 배우별 출연 영화수
+- Q9. 가장 많이 대여된 Top 10 film
+- Q10. 영화의 special features에 따른 대여량
+- Q11. 날짜 변화에 따른 매출액의 변화 (월별, 일별, 요일별, 시간별 매출액)
+- Q12. 대여가능일수와 대여하는 날에 따른 대여량
+
+
+### Q1. What are the top and least rented (in-demand) genres and what are their total sales?
+( 가장 많이/적게 대여된 장르는 무엇이며 그들의 총 매출액은 얼마인가 )
+
+1. 데이터 구조 시각화
+
+- t1 시각화
 
 ```{r}
-Q1_qry <- "WITH t1 AS (SELECT c.name AS Genre, COUNT(cu.customer_id) AS Total_rent_demand
+data_model <- dm_from_data_frames(category, film_category, film, inventory, rental, customer)
+
+data_model <- dm_add_references(
+  data_model,
+  category$category_id == film_category$category_id,
+  film_category$film_id == film$film_id,
+  film$film_id == inventory$film_id,
+  inventory$inventory_id == rental$inventory_id,
+  rental$customer_id == customer$customer_id
+)
+
+graph <- dm_create_graph(data_model, rankdir='LR', col_attr = c("column", "type"))
+dm_render_graph(graph)
+```
+
+- t2 시각화
+
+```{r}
+data_model <- dm_from_data_frames(category, film_category, film, inventory, rental, payment)
+
+data_model <- dm_add_references(
+  data_model,
+  category$category_id == film_category$category_id,
+  film_category$film_id == film$film_id,
+  film$film_id == inventory$film_id,
+  inventory$inventory_id == rental$inventory_id,
+  rental$rental_id == payment$rental_id
+)
+
+graph <- dm_create_graph(data_model, rankdir='LR', col_attr = c("column", "type"))
+dm_render_graph(graph)
+```
+
+
+2. 쿼리 및 결과
+
+```{r}
+qry <- "WITH t1 AS (SELECT c.name AS Genre, COUNT(cu.customer_id) AS Total_rent_demand
                       FROM category c
                       JOIN film_category fc
                       USING(category_id)
@@ -145,51 +211,57 @@ Q1_qry <- "WITH t1 AS (SELECT c.name AS Genre, COUNT(cu.customer_id) AS Total_re
           JOIN t2
           ON t1.genre = t2.genre;"
 
-Q1 <- dbGetQuery(con, Q1_qry)
+Q1 <- dbGetQuery(con, qry)
 
 DT::datatable(Q1)
 ```
 
-
-
+3. 시각화 및 해석
 
 ```{r}
-t1 <- left_join(category, film_category, by='category_id') %>%
-  left_join(., film, by='film_id') %>%
-    left_join(., inventory, by='film_id') %>%
-      left_join(., rental, by='inventory_id') %>%
-        left_join(., customer, by='customer_id') %>%
-          select(name, customer_id) %>%
-            group_by(name) %>%
-              summarize(Total_rent_demand = n())
+Q1_plot <- Q1 %>% 
+  gather(variable, value, -genre) %>% 
+  ggplot(data = ., aes(x=genre, y=value, group = variable, colour=variable, text=paste0("genre: ", genre, "\n", "value: ", value))) +
+    geom_line() +
+    geom_point() +
+    facet_wrap(~variable, scale="free") +
+    xlab('Genre') +
+    theme(axis.text.x = element_text(angle = 60, hjust = 1), legend.position="none")
 
-t2 <- left_join(category, film_category, by='category_id') %>%
-  left_join(., film, by='film_id') %>%
-    left_join(., inventory, by='film_id') %>%
-      left_join(., rental, by='inventory_id') %>%
-        left_join(., payment, by='rental_id') %>%
-          select(name, amount) %>%
-          group_by(name) %>%
-            summarize(total_sales = sum(amount, na.rm = TRUE))
-
-left_join(t1, t2, by='name') %>%
-  arrange(desc(Total_rent_demand))
-
+ggplotly(Q1_plot, tooltip = "text")
 ```
 
-- 분석 결과 
-1) Rent A Film은 16 종류의 장르를 가지고 있다.
+1) Rent A Film은 총 16 종류의 장르를 가지고 있다. 
 2) 가장 많이 대여된 장르는 Sports이며 총매출액 또한 4892.19로 가장 높다. 
 3) 가장 적게 대여된 장르는 Music이며 총매출액 또한 3071.52로 가장 낮다. 
 
 
-## 4.2 Q2
-Can we know how many distinct users have rented each genre?
+### Q2. Can we know how many distinct users have rented each genre?
 
 각 장르의 distinct한 고객수
 
+1. 데이터 구조 시각화 
+
 ```{r}
-Q2_qury <- "SELECT c.name AS Genre, COUNT(DISTINCT cu.customer_id) AS Total_rent_demand_distinct
+data_model <- dm_from_data_frames(category, film_category, film, inventory, rental, customer)
+
+data_model <- dm_add_references(
+  data_model,
+  category$category_id == film_category$category_id,
+  film_category$film_id == film$film_id,
+  film$film_id == inventory$film_id,
+  inventory$inventory_id == rental$inventory_id,
+  rental$customer_id == customer$customer_id
+)
+
+graph <- dm_create_graph(data_model, rankdir='LR', col_attr = c("column", "type"))
+dm_render_graph(graph)
+```
+
+2. 쿼리 및 결과 
+
+```{r}
+qury <- "SELECT c.name AS Genre, COUNT(DISTINCT cu.customer_id) AS total_distinct_users
           FROM category c
           JOIN film_category fc
           USING(category_id)
@@ -203,36 +275,62 @@ Q2_qury <- "SELECT c.name AS Genre, COUNT(DISTINCT cu.customer_id) AS Total_rent
           USING(customer_id)
           GROUP BY 1
           ORDER BY 2 DESC;"
-Q2 <- dbGetQuery(con, Q2_qury)
+Q2 <- dbGetQuery(con, qury)
 
 DT::datatable(Q2)
 ```
 
 
+3. 시각화 및 해석
+
 ```{r}
-t1 <- left_join(category, film_category, by='category_id') %>%
-  left_join(., film, by='film_id') %>%
-    left_join(., inventory, by='film_id') %>%
-      left_join(., rental, by='inventory_id') %>%
-        left_join(., customer, by='customer_id') %>%
-          select(name, customer_id) %>%
-            group_by(name) %>%
-              summarize(Total_rent_demand = n_distinct(customer_id)) %>%
-  arrange(desc(Total_rent_demand))
-DT::datatable(t1)
+tmp1 <- Q1 %>% gather(variable, value, -genre)
+tmp2 <- Q2 %>% gather(variable, value, -genre)
+
+
+Q2_plot <- rbind(tmp1, tmp2) %>% 
+  ggplot(data = ., aes(x=genre, y=value, group = variable, colour=variable, text=paste0("genre: ", genre, "\n", "value: ", value))) +
+    geom_line() +
+    geom_point() +
+    facet_wrap(~variable, scale="free") +
+    xlab('Genre') +
+    theme(axis.text.x = element_text(angle = 60, hjust = 1), legend.position="none")
+
+ggplotly(Q2_plot, tooltip = "text")
 ```
 
-- 분석 결과
-1번에서 Music 장르가 가장 적은 대여량을 기록했음에도 불구하고, 가장 적은 고객수를 기록하지는 않았다.
+1번의 결과들과 비교해보았을 때, 1번에서 Music 장르가 가장 적은 대여량(total_rent_demand)와 가장 적은 매출액(total_sales)을 기록했음에도 불구하고, 2번에서 가장 적은 고객수(total_distinct_users)를 기록하지는 않았다.
+
 Travel 장르가 가장 적은 고객수를 기록하였다.이를 통해 알 수 있는 점은 Travel 장르의 재대여횟수가 Music 장르보다 많았다는 것이다. 
 1번에서 총매출액과 대여량이 가장 많았던 Sports 장르는 고객수 또한 가장 많았다. 
 
-## 4.3 Q3
-What is the Average rental rate for each genre? (from the highest to the lowest)
+이를 통해 Rent A Film의 고객 중 대부분이 Sports 장르에 관심이 많음을 알 수 있다. 
+
+
+### Q3. What is the Average rental rate for each genre? (from the highest to the lowest)
+
 각 장르의 평균대여료
 
+1. 데이터 구조 시각화
+
 ```{r}
-Q3_qry <- "SELECT c.name AS Genre, ROUND(AVG(f.rental_rate),2) AS Average_rental_rate
+data_model <- dm_from_data_frames(category, film_category, film)
+
+data_model <- dm_add_references(
+  data_model,
+  category$category_id == film_category$category_id,
+  film_category$film_id == film$film_id
+)
+
+graph <- dm_create_graph(data_model, rankdir='LR', col_attr = c("column", "type"))
+dm_render_graph(graph)
+```
+
+
+2. 쿼리 및 결과
+
+```{r}
+qry <- "SELECT c.name AS Genre, ROUND(AVG(f.rental_rate),2) AS average_rental_rate
           FROM category c
           JOIN film_category fc
           USING(category_id)
@@ -240,24 +338,62 @@ Q3_qry <- "SELECT c.name AS Genre, ROUND(AVG(f.rental_rate),2) AS Average_rental
           USING(film_id)
           GROUP BY 1
           ORDER BY 2 DESC;"
-Q3 <- dbGetQuery(con, Q3_qry)
+Q3 <- dbGetQuery(con, qry)
 DT::datatable(Q3)
 ```
 
-- 분석결과 
-
-대여횟수가 각 장르의 평균대여료와 상관이 없다고 결론내릴 수 있다. 
-Games 장르의 평균대여료는 가장 높지만 가장 많이 대여된 top 5 장르 중 하나이다. 
-놀랍게도, Music 장르는 가장 적은 대여량을 보였으나 평균대여료가 가장 비싸지는 않다. 
-Action 장르 또한 가장 많이 대여된 장르 중 하나임에도 평균대여료는 그리 비싸지 않다.  
-
-
-## 4.4 Q4
-How many rented films were returned late, early and on time?
-반납 시기(연체/일찍/제때)에 따른 영화대여수
+3. 시각화 및 해석
 
 ```{r}
-Q4_qry <- "WITH t1 AS (SELECT *, DATE_PART('day', return_date - rental_date) AS date_difference
+Q3_plot <- Q3 %>% 
+  ggplot(data = ., aes(x=genre, y=average_rental_rate, text=paste0("genre: ", genre, "\n", "average_rental_rate: ", average_rental_rate))) +
+    geom_line(group=1) +
+    geom_point() +
+    xlab('Genre') +
+    theme(axis.text.x = element_text(angle = 60, hjust = 1), legend.position="none")
+
+ggplotly(Q3_plot, tooltip = "text")
+```
+
+```{r}
+tmp <- left_join(Q1, Q2, by='genre') %>%
+  left_join(., Q3, by='genre') %>%
+    select(., total_rent_demand, total_sales, total_distinct_users, average_rental_rate)
+
+plot(tmp)
+```
+
+```{r}
+cor(tmp)
+```
+
+1, 2번에서 살펴보았던 총대여량(total_rent_demand), 총매출액(total_sales), 총고객수(total_distinct_users)와 평균대여료(average_rental_rate)를 비교해보았다. 총대여량과 총매출액, 총고객수끼리는 상관관계가 있지만 총대여량과 총매출액, 총고객수와 평균대여료는 상관관계가 없다.
+
+평균대여료가 높다고 해서 그것을 찾는 사람이 적은 것은 아니라고 말할 수 있다.
+
+### Q4. How many rented films were returned late, early and on time? 
+
+반납 시기(일찍/제때/연체)에 따른 대여량
+
+
+1. 데이터 구조 시각화
+
+```{r}
+data_model <- dm_from_data_frames(film, inventory, rental)
+
+data_model <- dm_add_references(
+  data_model,
+  film$film_id == inventory$film_id
+)
+
+graph <- dm_create_graph(data_model, rankdir='LR', col_attr = c("column", "type"))
+dm_render_graph(graph)
+```
+
+2. 쿼리 및 결과
+
+```{r}
+qry <- "WITH t1 AS (SELECT *, DATE_PART('day', return_date - rental_date) AS date_difference
                       FROM rental),
           t2 AS (SELECT rental_duration, date_difference,
                         CASE
@@ -274,26 +410,51 @@ Q4_qry <- "WITH t1 AS (SELECT *, DATE_PART('day', return_date - rental_date) AS 
           FROM t2
           GROUP BY 1
           ORDER BY 2 DESC;"
-Q4 <- dbGetQuery(con, Q4_qry)
+Q4 <- dbGetQuery(con, qry)
 DT::datatable(Q4)
 ```
-- 분석 결과 
-The return status of movies is arguably is one the most important aspects to monitor in a DVD rental business. From the above query, 48% of the movies are returned earlier than the due date while 41% of the movies are returned late and 11% arrive on time.
 
-There could be a number of factors for why this could be happening, like the shipping distance of these movies from stores which could be totally out of the control of the customers and so on. We would need to dive deeper into the data to get the gist of the issue.
-
-However, it is wise to note that a significant percentage of movies are returned late. Introducing a penalty fee for late arrival could be an extra source of income and in turn, discourage late returns.
-
-But such a decision can only make sense if we know why the issue is occurring.
-
-
-
-## 4.5 Q5
-In which countries do Rent A Film have a presence in and what is the customer base in each country? What are the total sales in each country? (From most to least)
-(Rent A Film이 입점한 국가와 고객들의 국가 / 각 국가에 대한 총매출액)
+3. 시각화 및 해석
 
 ```{r}
-Q5_qry <- "SELECT country,
+Q4_plot <- Q4 %>%
+  ggplot(., aes(x=return_status, y=total_no_of_films))+geom_bar(stat='identity') 
+
+ggplotly(Q4_plot)
+```
+
+
+영화의 48 %가 마감일보다 일찍 반환되고 영화의 41 %가 늦게 반환되고 11 %가 제 때 반환된다. 대부분의 고객이 DVD를 일찍 반환하는 경향을 보인다. 
+
+일찍 반납하거나 제 때 반납하는 경우는 괜찮지만 늦게 반납하는 경우는 영업에 지장을 줄 수 있다. 그러나 그 비율이 41%나 되는 것을 생각해보았을 때, 늦게 반납한 경우 벌금을 부과하는 것은 추가 수입원이 될 수 있으며 반납을 일찍 하게 하는 요인이 될 수 있다.
+
+
+### Q5. In which countries do Rent A Film have a presence in and what is the customer base in each country? What are the total sales in each country? (From most to least)
+
+(Rent A Film이 입점한 국가와 국가별로 몇 명의 고객들이 있는지 / 각 국가에 대한 총매출액)
+
+1. 데이터 구조 시각화
+
+```{r}
+data_model <- dm_from_data_frames(country, city, address, customer, payment)
+
+data_model <- dm_add_references(
+  data_model,
+  country$country_id == city$country_id,
+  city$city_id == address$city_id,
+  address$address_id == customer$address_id,
+  customer$customer_id == payment$customer_id
+)
+
+graph <- dm_create_graph(data_model, rankdir='LR', col_attr = c("column", "type"))
+dm_render_graph(graph)
+```
+
+
+2. 쿼리 및 결과 
+
+```{r}
+qry <- "SELECT country,
                 COUNT(DISTINCT customer_id) AS customer_base,
                 SUM(amount) AS total_sales
           FROM country
@@ -307,22 +468,50 @@ Q5_qry <- "SELECT country,
           USING(customer_id)
           GROUP BY 1
           ORDER BY 2 DESC, 3 DESC;"
-Q5 <- dbGetQuery(con, Q5_qry)
+Q5 <- dbGetQuery(con, qry)
 DT::datatable(Q5)
 ```
 
-- 분석 결과 
-
-Rent A Film has a presence in 108 countries with India having the highest customer base of 60 customers and the largest total sales in terms of money. Afghanistan has the smallest total sales in terms of money, even though it is not the only country with the smallest customer base of 1 customer
-
-
-
-## 4.6 Q6
-Who are the top 5 customers per total sales and can we get their detail just in case Rent A Film wants to reward them?
-(총매출액이 가장 높은 5명의 고객을 파악하고 그들에게 보상할 때 필요한 세부 정보 파악하기)
+3. 시각화 및 해석
 
 ```{r}
-Q6_qry <- "WITH t1 AS (SELECT *, 
+Q5_plot <- ggplot(Q5, aes(x=customer_base, y=total_sales, text=paste0("country: ", country, "\n", "customer_base: ", customer_base, "\n", "total_sales: ", total_sales))) + geom_point()
+
+
+ggplotly(Q5_plot, tooltip='text')
+```
+
+Rent A Film은 108개의 서로 다른 국적을 가진 고객들을 보유하고 있다. 
+그 중 인도는 60명의 고객이 있으며 총매출액이 가장 높다. 
+아프가니스탄은 고객수가 가장 적은 국가가 아님에도 불구하고 이익측면에서 총매출액이 가장 적다. 
+
+
+### Q6. Who are the top 5 customers per total sales and can we get their detail just in case Rent A Film wants to reward them?
+
+( 총매출액이 가장 높은 5명의 고객을 파악하고 그들에게 보상할 때 필요한 세부 정보 파악하기 )
+
+1. 데이터 구조 시각화
+
+```{r}
+data_model <- dm_from_data_frames(customer, address, city, country, payment)
+
+data_model <- dm_add_references(
+  data_model,
+  customer$address_id == address$address_id,
+  address$city_id == city$city_id,
+  city$country_id == country$country_id,
+  customer$customer_id == payment$customer_id
+)
+
+graph <- dm_create_graph(data_model, rankdir='LR', col_attr = c("column", "type"))
+dm_render_graph(graph)
+```
+
+
+2. 쿼리 및 결과 
+
+```{r}
+qry <- "WITH t1 AS (SELECT *, 
                             first_name || ' ' || last_name AS full_name
                       FROM customer)
           SELECT full_name,
@@ -344,31 +533,437 @@ Q6_qry <- "WITH t1 AS (SELECT *,
           GROUP BY 1,2,3,4,5,6
           ORDER BY 7 DESC
           LIMIT 5;"
-Q6 <- dbGetQuery(con, Q6_qry)
+Q6 <- dbGetQuery(con, qry)
 DT::datatable(Q6)
 ```
 
-- 분석 결과
-
-Assuming we wish to reward or send physical gifts to the top customers, the above table shows their full names, addresses, email etc.
-
-This information can be sent to the marketing team of the company in order to use their domain knowledge to decide how to reward them.
+VIP 고객에게 실제 선물을 보상하거나 보내려고 할 때 위의 정보는 고객의 이름, 주소, 이메일 등을 보여준다. 회사의 마케팅 팀에서 보상방법을 결정할 때 이 정보를 유용하게 사용할 수 있을 것이다. 
 
 
-## 4.8 최종 결론 
-In this project, we analyzed data from a DVD rental company we decided to call ‘Rent A Film’ to find insights about the customers and their preference. We got 3 major conclusions:
+### Q7. 이탈/잔존 고객의 수 & 이탈/잔존 고객의 구매횟수 및 대여료(최소, 평균, 최대, 총)
 
-1. The company has sport-loving customers and they would be advisable to stock more sport-related films to increase total sales compared to music-related movies. It would be a good idea to increase the average rental rate of sport genre films since it is not a major factor in renting for the customers. This, in turn, increases total revenue. However further analysis needs to be done to conclude on this.
-
-2. There is potential to have an extra source of revenue through a fee on late film returns.
-
-3. Rent A Film has a presence in 108 countries with India been the largest market in people and revenue. Additionally, 20% of the countries they have presence in contribute to 80% of the total customer base.
-
-
-## 4.7 내가 추가한 Question
+1. 데이터 구조 시각화
 
 ```{r}
-DBI::dbDisconnect(con)
+data_model <- dm_from_data_frames(payment, customer)
+
+data_model <- dm_add_references(
+  data_model,
+  customer$customer_id == payment$customer_id
+)
+
+graph <- dm_create_graph(data_model, rankdir='LR', col_attr = c("column", "type"))
+dm_render_graph(graph)
 ```
 
+2. 쿼리 및 결과 
+
+- 총 고객수
+
+```{r}
+qry <- 
+"SELECT COUNT(customer_id) AS num_customer
+FROM customer
+;"
+
+dbGetQuery(con, qry)
+```
+
+- active vs not_active 
+
+```{r}
+qry <- 
+"SELECT active, 
+        COUNT(customer_id) AS cnt
+FROM customer
+GROUP BY active
+;"
+
+dbGetQuery(con, qry)
+```
+
+총 고객수 599명 중 이탈 고객이 15명이고 잔존고객이 584명이다.
+
+
+```{r}
+qry <- 
+"SELECT active, 
+       COUNT(*) AS pay_cnt, 
+       MIN(amount) AS min_amt, 
+       AVG(amount) AS avg_amt,
+       MAX(amount) AS max_amt, 
+       SUM(amount) AS total_amt
+FROM payment AS p
+LEFT JOIN customer AS c
+  ON p.customer_id = c.customer_id
+GROUP BY c.active;"
+
+dbGetQuery(con, qry)
+```
+
+총 구매기록 14596건 중 이탈 고객의 구매기록이 369건이고 잔존고객의 구매기록이 14227건이다. 
+이탈 고객이나 잔존 고객이나 평균 대여료에는 큰 차이가 없다.
+
+
+### Q8. 가장 많이 대여된 Top 10 film
+
+1. 데이터 구조 시각화
+
+```{r}
+data_model <- dm_from_data_frames(category, film_category, film, inventory, rental)
+
+data_model <- dm_add_references(
+  data_model,
+  category$category_id == film_category$category_id,
+  film_category$film_id == film$film_id,
+  film$film_id == inventory$film_id,
+  inventory$inventory_id == rental$inventory_id
+)
+
+graph <- dm_create_graph(data_model, rankdir='LR', col_attr = c("column", "type"))
+dm_render_graph(graph)
+```
+
+2. 쿼리 및 결과
+
+```{r}
+qry <- "SELECT f.film_id, f.title AS movie_title, COUNT(f.title) AS num_rentals, c.name
+          FROM category c
+          JOIN film_category fc
+          USING(category_id)
+          JOIN film f
+          USING(film_id)
+          JOIN inventory i
+          USING(film_id)
+          JOIN rental r
+          USING(inventory_id)
+        GROUP BY f.film_id, f.title, c.name
+        ORDER BY num_rentals DESC
+        LIMIT 10;"
+
+Q8 <- dbGetQuery(con, qry)
+DT::datatable(Q8)
+```
+
+가장 대여횟수가 많은 film TOP 10은 위와같다. 거의 모든 장르가 골고루 존재하지만, 그중에서 Games 장르가 유일하게 TOP 10 내에 2개가 있다. 
+
+
+### Q9. 배우별 출연 영화수 및 가장 많은 관객수(DVD 대여수)를 가진 배우 TOP 10
+
+1. 데이터 구조 시각화
+
+```{r}
+data_model <- dm_from_data_frames(actor, film_actor, film, inventory, rental)
+
+data_model <- dm_add_references(
+  data_model,
+  actor$actor_id == film_actor$actor_id,
+  film_actor$film_id == film$film_id,
+  film$film_id == inventory$film_id,
+  inventory$inventory_id == rental$inventory_id
+)
+
+graph <- dm_create_graph(data_model, rankdir = "LR", col_attr = c("column", "type"))
+dm_render_graph(graph)
+```
+
+2. 쿼리 및 결과
+
+```{r}
+qry <- 
+"SELECT actor_id, COUNT(film_id) AS film_cnt
+FROM film_actor
+GROUP BY actor_id
+;"
+
+Q9 <- dbGetQuery(con, qry)
+summary(Q9$film_cnt)
+```
+
+배우들은 보통 27편 정도의 작품에 출연하며 가장 적게는 14편, 많게는 42편의 작품에 출연한다. 
+
+
+```{r}
+qry <- "WITH t1 as (SELECT f.film_id, f.title AS movie_title, COUNT(f.title) AS num_rentals
+                        FROM film f
+                        JOIN inventory i
+                        USING(film_id)
+                        JOIN rental r
+                        USING(inventory_id)
+                      GROUP BY f.film_id, f.title)
+        SELECT ff.actor_id, ffff.first_name, ffff.last_name, SUM(fff.num_rentals) as num_rentals 
+        FROM film_actor as ff
+        LEFT JOIN t1 as fff
+        USING(film_id)
+        LEFT JOIN actor as ffff
+        USING(actor_id)
+        GROUP BY ff.actor_id, ffff.first_name, ffff.last_name
+        ORDER BY num_rentals DESC;"
+
+Q9 <- dbGetQuery(con, qry)
+DT::datatable(Q9)
+```
+
+Gina Degeneres가 출연한 작품에 대한 DVD 대여수가 753번으로 가장 많았다. 
+
+
+
+### Q10. 영화의 special features에 따른 대여량
+
+* special features : Trailers, Commentaries, Deleted Scenes, Behind the Scenes
+
+1. 데이터 구조 시각화
+
+```{r}
+data_model <- dm_from_data_frames(category, film_category, film, inventory, rental)
+
+data_model <- dm_add_references(
+  data_model,
+  category$category_id == film_category$category_id,
+  film_category$film_id == film$film_id,
+  film$film_id == inventory$film_id,
+  inventory$inventory_id == rental$inventory_id
+)
+
+graph <- dm_create_graph(data_model, rankdir='LR', col_attr = c("column", "type"))
+dm_render_graph(graph)
+```
+
+2. 쿼리 및 결과 
+
+```{r}
+qry <- 
+"
+SELECT film_id, special_features
+FROM film;"
+
+special <- dbGetQuery(con, qry)
+DT::datatable(special)
+```
+
+```{r}
+Trailers <- special %>%
+              filter(str_detect(special_features, "Trailers"))
+Trailers$Trailers <- 1
+
+Commentaries <- special %>%
+              filter(str_detect(special_features, "Commentaries"))
+Commentaries$Commentaries <- 1
+
+Deleted <- special %>%
+              filter(str_detect(special_features, "Deleted"))
+Deleted$Deleted <- 1
+
+Behind <- special %>%
+              filter(str_detect(special_features, "Behind"))
+Behind$Behind <- 1
+
+Q10 <- left_join(special, select(Trailers, film_id, Trailers), by="film_id") %>%
+              left_join(., select(Commentaries, film_id, Commentaries), by="film_id") %>%
+                left_join(., select(Deleted, film_id, Deleted), by="film_id") %>%
+                  left_join(., select(Behind, film_id, Behind), by="film_id") %>%
+                    replace(., is.na(.), 0)
+
+select(Q10, Trailers, Commentaries, Deleted, Behind) %>%
+  summarise_each(funs(sum))
+```
+
+전체 1000개의 film 중 각각의 tag를 가지는 film은 각각 535, 539, 503, 538개이다.
+
+
+```{r}
+# 영화별 대여량 
+qry <- "SELECT f.film_id, f.title, COUNT(f.title) AS num_rentals
+          FROM film f
+          JOIN inventory i
+          USING(film_id)
+          JOIN rental r
+          USING(inventory_id)
+        GROUP BY f.film_id, f.title
+        ORDER BY num_rentals DESC;"
+
+demand <- dbGetQuery(con, qry)
+```
+
+- tag 조합별 영화 개수
+
+```{r}
+left_join(Q10, demand, by='film_id') %>%
+  group_by(Trailers, Commentaries, Deleted, Behind) %>%
+    summarise(., n=n())
+```
+
+- tag 조합별 대여량
+
+```{r}
+left_join(Q10, demand, by='film_id') %>%
+  group_by(Trailers, Commentaries, Deleted, Behind) %>%
+    summarise(., total_rentals = sum(num_rentals, na.rm=TRUE)) %>%
+      arrange(., desc(total_rentals))
+```
+
+4개의 tag 중 적어도 하나의 tag를 가지므로 가능한 15가지 조합에 대해 그 개수와 대여량의 합을 구해보았다. 
+
+Trailers, Commentaris, Behind를 모두 포함하는 경우가 가장 많았으며, Trailers, Deleted, Behind를 모두 포함하는 경우가 가장 적었다. 역시나 총대여량에 있어서도 위의 조합들순으로 총대여량이 가장 높았고, 가장 적었다.
+
+이를 통해 어떠한 tag 조합을 가질 때 더 많이 대여가 될 지 예상해볼 수 있다.
+
+
+### Q11. 날짜 변화에 따른 매출액의 변화 (월별, 일별, 요일별, 시간별 매출액)
+
+```{r}
+print(min(payment$payment_date))
+print(max(payment$payment_date))
+```
+
+payment data는 2007년 2월 14일부터 2007년 5월 14일까지의 데이터이다.
+
+
+```{r}
+pay <- select(payment, amount, payment_date)
+pay$month <- strftime(pay$payment_date, '%m')
+pay$day <- strftime(pay$payment_date, '%m-%d')
+pay$hour <- strftime(pay$payment_date, '%H')
+pay$weekday <- strftime(pay$payment_date, '%A')
+
+head(pay)
+```
+
+- 월별 
+
+```{r}
+month_plot <- pay %>% 
+                group_by(month) %>% 
+                  summarise(., sum_am = sum(amount)) %>%
+                  ggplot(aes(x=month, y=sum_am, group=1,
+                             text=paste0("month: ", month, "\n", 
+                            "sum_amount: ", sum_am))) +
+                  geom_line() +
+                  geom_point()
+
+ggplotly(month_plot, tooltip = "text")
+```
+
+4월에 가장 많은 DVD 매출액이 있었다.
+
+
+- 일별 
+
+```{r}
+day_plot <- pay %>% 
+                group_by(day) %>% 
+                  summarise(., sum_am = sum(amount)) %>%
+                  ggplot(aes(x=day, y=sum_am, group=1,
+                             text=paste0("day: ", day, "\n", 
+                            "sum_amount: ", sum_am))) +
+                  geom_line() +
+                  geom_point()+
+                  theme(axis.text.x=element_text(angle=60,hjust=1))
+
+ggplotly(day_plot, tooltip = "text")
+```
+
+일별로 살펴보니 4월 30일에 특출나게 많은 매출액을 보였다. 위에서 4월이 가장 매출액이 높았던 것은 이 날의 영향으로 보인다.
+
+- 시간별 
+
+```{r}
+hour_plot <- pay %>% 
+                group_by(hour) %>% 
+                  summarise(., sum_am = sum(amount)) %>%
+                  ggplot(aes(x=hour, y=sum_am, group=1,
+                             text=paste0("hour: ", hour, "\n", 
+                            "sum_amount: ", sum_am))) +
+                  geom_line() +
+                  geom_point()+
+                  theme(axis.text.x=element_text(angle=60,hjust=1))
+
+ggplotly(hour_plot, tooltip = "text")
+```
+
+13시나 17시에 매출액이 높았다. 여러 국가의 고객들이 존재하다보니 잘 활동하지 않는 새벽시간대에도 시차의 영향으로 인해 꽤나 많은 매출액을 차지하는 것처럼 보인다.
+
+
+- 요일별 
+
+```{r}
+weekday_plot <- pay %>% 
+                group_by(weekday) %>% 
+                  summarise(., sum_am = sum(amount)) %>%
+                    mutate(name = fct_relevel(weekday, 
+            "월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일")) %>%
+                  ggplot(aes(x=name, y=sum_am, group=1,
+                             text=paste0("weekday: ", weekday, "\n", 
+                            "sum_amount: ", sum_am))) +
+                  geom_line() +
+                  geom_point()+
+                  theme(axis.text.x=element_text(angle=60,hjust=1))
+
+ggplotly(weekday_plot, tooltip = "text")
+```
+
+- 월요일과 금요일에 매출액이 높다.
+
+### Q12. 대여가능일수와 대여하는 날에 따른 대여량 
+
+1. 데이터 구조 시각화
+
+```{r}
+data_model <- dm_from_data_frames(film, inventory, rental)
+
+data_model <- dm_add_references(
+  data_model,
+  film$film_id == inventory$film_id,
+  inventory$inventory_id == rental$inventory_id
+)
+
+graph <- dm_create_graph(data_model, rankdir = "LR", col_attr = c("column", "type"))
+dm_render_graph(graph)
+```
+
+
+2. 쿼리 및 결과
+
+```{r}
+qry <- 
+"SELECT r.rental_id, r.rental_date, f.rental_duration
+FROM rental AS r
+LEFT JOIN inventory AS i
+  ON r.inventory_id = i.inventory_id
+LEFT JOIN film AS f
+  ON i.film_id = f.film_id
+;"
+
+rental_ <- dbGetQuery(con, qry)
+rental_$rental_weekday <- strftime(rental_$rental_date, '%A')
+DT::datatable(rental_)
+```
+
+3. 시각화 및 해석
+
+```{r}
+Q12_plot <- rental_ %>%
+  group_by(rental_weekday, rental_duration) %>%
+    summarise(n=n()) %>%
+      ggplot(data = ., aes(x=match(rental_weekday, c("월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일")), y=n, group = rental_duration, colour=rental_duration, text=paste0("rental_weekday: ", rental_weekday, "\n", "value: ", n))) +
+        geom_line(group=1) +
+        geom_point() +
+        facet_wrap(~rental_duration, nrow=1) +
+        xlab('요일') +
+        scale_x_discrete(labels= c("월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일")) +
+        theme(axis.text.x = element_text(angle = 60, hjust = 1), legend.position="none")
+
+ggplotly(Q12_plot, tooltip = "text")
+```
+
+대여가능일수가 3일, 4일, 7일이면 화요일에 빌리는 사람이 많고, 5일이면 토요일, 6일이면 화요일이나 일요일에 많이 빌리는 것을 알 수 있었다. 
+
+대체로 월요일과 수요일에 적게 빌리는 것을 확인할 수 있다.
+
+
+
+```{r}
+# Database와의 연결 끊기 
+DBI::dbDisconnect(con)
+```
 
